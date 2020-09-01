@@ -89,6 +89,7 @@ declare namespace Sox {
         effects?: Effect[];
         global?: GlobalOptions;
         soxPath?: string;
+        noTmpFile?: boolean;
     }
 
 }

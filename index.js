@@ -8,15 +8,27 @@ module.exports = function soxStream(opts) {
 	if (!opts || !opts.output || (!opts.output.t && !opts.output.type)) {
 		throw new Error('Options must include output.type')
 	}
-	var soxOutput = new stream.PassThrough()
-	var tmpFile = createTempFile()
+	var soxOutput = new stream.PassThrough();
+	var tmpFile;
+	var sox;
 
-	tmpFile.on('error', emitErr)
-	tmpFile.on('finish', function () {
+	if (!opts.noTmpFile) {
+		tmpFile = createTempFile();
+
+		tmpFile.on('error', emitErr)
+		tmpFile.on('finish', function () {
+			createSoxProcess();
+		});
+	} else {
+		createSoxProcess();
+	}
+
+	function createSoxProcess() {
+		var inputPath = (tmpFile !== undefined) ? tmpFile.path : '-';
 		var args = []
 			.concat(hashToArray(opts.global || []))
 			.concat(hashToArray(opts.input || []))
-			.concat(tmpFile.path)
+			.concat(inputPath)
 			.concat(hashToArray(opts.output || []))
 			.concat('-')
 			.concat(opts.effects || [])
@@ -24,7 +36,7 @@ module.exports = function soxStream(opts) {
 				return flattened.concat(ele)
 			}, [])
 
-		var sox = cp.spawn(opts.soxPath || 'sox', args)
+		sox = cp.spawn(opts.soxPath || 'sox', args)
 		sox.stdout.pipe(soxOutput)
 		sox.stdout.on('close', function () {
 			cleanupThenEmit('finish', null);
@@ -33,12 +45,17 @@ module.exports = function soxStream(opts) {
 			cleanupThenEmitErr(new Error(chunk))
 		})
 		sox.on('error', cleanupThenEmitErr)
-	})
+	}
 
 	function cleanupThenEmit(event, data) {
-		tmpFile.cleanup(function() {
-			duplex.emit(event, data)
-		})
+		if (tmpFile) {
+			tmpFile.cleanup(function() {
+				duplex.emit(event, data)
+			})
+		} else {
+			duplex.emit(event, data);
+		}
+		
 	}
 	
 	function cleanupThenEmitErr(err) {
@@ -51,6 +68,12 @@ module.exports = function soxStream(opts) {
 		duplex.emit('error', err)
 	}
 
-	var duplex = duplexer(tmpFile, soxOutput)
+	var duplex;
+	if (tmpFile === undefined) {
+		duplex = duplexer(sox.stdin, soxOutput)
+	} else {
+		duplex = duplexer(tmpFile, soxOutput)
+
+	}
 	return duplex
 }
